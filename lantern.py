@@ -8,6 +8,7 @@ import psutil
 from pathlib import Path
 import subprocess
 import random
+import pygame
 
 #--------[ Library Configuration ]--------
 path         = "/media/Lantern/Lantern_pics/"
@@ -44,6 +45,8 @@ def load_library():
 #--------------------
 def init_hardware():
 #--------------------
+    global spi
+    global ser
     spi = spidev.SpiDev()
     spi.open(0,0)
     spi.max_speed_hz = 7629
@@ -82,7 +85,8 @@ def bytime(e):
 
 #---------------            
 def do_style(enable):
-#---------------
+#---------------------
+    global spi
     if enable == 0:
         #  Quiet style 
         spi.xfer( bytes( "w0\n","ascii"))
@@ -128,7 +132,9 @@ def player_stopped() :
 # --------------------------------------------------------------------
 #                              M a i n
 #---------------------------------------------------------------------
-# init_hardware()
+global spi
+global ser
+init_hardware()
 library = []
 load_library()     
 
@@ -139,7 +145,7 @@ player.pause()
 player.stopEvent = player_stopped
 
 # Wait until body has finished calibration
-if False :
+if True :
     print("Waiting for calibration...")
     done = False
     while not done :
@@ -149,13 +155,20 @@ if False :
         print( "tick")
         time.sleep(1)               
     print("Done")
+    #  Tell face that we're ready
+    ser.write( bytes( "R\n","ascii"))
+
+# Play startup sound();
+pygame.mixer.init()
+pygame.mixer.music.load("startup_sound.wav")
+pygame.mixer.music.play()
 
 # Main Command Loop  
 while True:
-    if True :
+    if False :
         # Debug mode
         cmd = "G0000\n"
-        target = input("Target: ")
+        target = input("Targoot: ")
         try:
            year = int(target)
         except:
@@ -167,10 +180,11 @@ while True:
         # Normal Mode
         c=ser.read_until()
         cmd=c.decode('ascii', "ignore")
-        year = int(cmd[1:5])
+        
   
     if cmd.startswith("G") :
         # 'GO' Command: Switch to startup clip, then go get a list of the closest file(s)
+        year = int(cmd[1:5])
         try:
             player.load(path+startup_clip)
             time.sleep(1)
@@ -185,17 +199,17 @@ while True:
             p = library[pl[i]]
             print( str(pl[i]) + ": (" + str(p['year']) + "." + str(p['month']) + " ) " + p['file'] + " @" + str(p['last_play']) )
 
-        # do_style(1)
+        do_style(1)
             
         # Tell hands to move to the first entry's year
         p = library[pl[0]]
-        # move_hands(p["year"], p["month"])
+        move_hands(p["year"], p["month"])
         
         #  Quiet style now
-        # do_style(0)
+        do_style(0)
         
         #  Tell face that we're here
-        # ser.write( bytes( "A\n","ascii"))
+        ser.write( bytes( "A\n","ascii"))
 
         # Play the least-recently played file in the list
         t = library[pl[0]]["last_play"]
