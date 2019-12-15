@@ -8,6 +8,12 @@ import psutil
 from pathlib import Path
 import subprocess
 import random
+import pygame
+
+#--------[ Library Configuration ]--------
+path         = "/media/Lantern/Lantern_pics/"
+startup_clip = 'lantern_slides.mp4'
+
 
 #-------------------
 def load_library():
@@ -29,20 +35,29 @@ def load_library():
                 month = random.randint(1,12)
             else:
                 month = year[1]
-            year = int(year[0])
-            library.append( [int(year), int(month), path+f, startup_time] )
+            year = year[0]
+            library.append( {"year":int(year), "month":int(month), "file": path+f, "last_play": startup_time} )
 
-    library.sort()
+    library.sort(key = lambda x:x['year'])
     print(str(len(library)) + " entries in library")
 
 
 #--------------------
 def init_hardware():
 #--------------------
+    global spi
+    global ser
     spi = spidev.SpiDev()
     spi.open(0,0)
     spi.max_speed_hz = 7629
     ser = serial.Serial("/dev/ttyS0", 57600)
+    #  Warp Core Off, Gauges off, Spinner off 
+    spi.xfer( bytes( "w0\n","ascii"))
+    time.sleep(.5)
+    spi.xfer( bytes( "g0,0,0\n","ascii"))
+    time.sleep(.1)
+    spi.xfer( bytes( "s0,0\n","ascii"))
+
 
 #-----------------
 def get_files(y):
@@ -51,17 +66,17 @@ def get_files(y):
     min_dist = 1000
     # Scan to see how close we can come to the requested date
     for i in range(len(library)) :
-        dist = abs(y-library[i][0]) 
+        dist = abs(y-library[i]['year']) 
         if dist < min_dist :
             min_dist = dist;
             
     # Gather all files within the min distance        
     for i in range(len(library)) :
-      dist = abs(y-library[i][0])
+      dist = abs(y-library[i]["year"])
       if dist <= min_dist :
           pl.append(i)
           
-    print("Found " + str(len(pl)) + " starting at " + str(library[pl[0]][0]) + "." + str(library[pl[0]][1]))
+    print("Found " + str(len(pl)) +': ')
     return pl
 
 
@@ -69,126 +84,147 @@ def bytime(e):
     return e[2]
 
 #---------------            
-def do_style(cmd):
-#---------------    
-    PRINT("dO sTYLE")
-
-
-#----------------------------------
-def debug_mode() :
-#---------------------------
-    while(True):
-        target = input("Target: ")
-        try:
-           target = int(target)
-        except:
-            target = 0        
-        if target == 0 :
-            exit();
-        get_files(target)
-
-
-# --------------------------------------------------------------------
-#                              M a i n
-#---------------------------------------------------------------------
-# init_hardware()
-library = []
-load_library()     
-debug_mode()
-    
-#  Warp Core Off, Gauges off, Spinner off 
-spi.xfer( bytes( "w0\n","ascii"))
-time.sleep(.5)
-spi.xfer( bytes( "g0,0,0\n","ascii"))
-time.sleep(.1)
-spi.xfer( bytes( "s0,0\n","ascii"))
-
-# Video player to the startup screen and pause
-player = OMXPlayer(path+startup_clip, args=['--display=5 --loop'])
-time.sleep(1)
-player.pause()
-
-# Wait until body has finished calibration
-print("Waiting for calibration...")
-done = False
-while not done :
-    d = spi.xfer( bytes("n\n","ascii"))
-    if d[1] == 1 :
-        done = True
-    print( "tick")
-    time.sleep(1)
-                   
-print("Done")
-#  Tell face that we're ready
-ser.write( bytes( "R\n","ascii"))
-
-   
-while True:
-   c=ser.read_until()
-   cmd=c.decode('ascii', "ignore")
-   
-   if cmd.startswith("G") :
-        # 'GO' Command: Get a list of the closest file(s)
-        try:
-            player.load(path+startup_clip)
-            time.sleep(1)
-            player.pause()
-        except:
-            print("player died")
-        year = int(cmd[1:5])
-        print("Requested year: " + str(year))
-        pl = get_files(year)
-        
-        for i in range(len(pl)):
-            p = library[pl[i]]
-            print( str(pl[i]) + ": (" + str(p[0]) + "." + p[1] + " ) " + p[2] + " @" + str(p[3]) )
-
-        # do_style(cmd)
-        # Show some style: Warp on, front/right gears @ 50%
-        spi.xfer( bytes( "w1\n","ascii"))
-        time.sleep(1)
-        spi.xfer( bytes( "g80,0,80\n","ascii"))
-        time.sleep(.1)
-        spi.xfer( bytes( "s1,0\n","ascii"))
-    
-        # Tell hands to move to the first entry's year
-        cmd = cmd.replace("G", "h",1)
-        cmd = "h" + str(library[pl[0]][0]) + ".5\n"
-        print( "sending " + cmd)
-        spi.xfer( bytes( cmd,"ascii"))
-
-        # Poll for hands to be done          
-        done = False
-        while not done :
-            d = spi.xfer( bytes("n\n","ascii"))
-            if d[1] == 1 :
-                done = True
-            print( "tick")
-            time.sleep(1)
-                   
-        print("Done")
-
-        #  Quiet style now
+def do_style(enable):
+#---------------------
+    global spi
+    if enable == 0:
+        #  Quiet style 
         spi.xfer( bytes( "w0\n","ascii"))
         time.sleep(.5)
         spi.xfer( bytes( "g0,0,0\n","ascii"))
         time.sleep(.1)
         spi.xfer( bytes( "s0,0\n","ascii"))
         
+    else:
+        # Show some style: Warp on, front/right gears @ 50%
+        spi.xfer( bytes( "w1\n","ascii"))
+        time.sleep(1)
+        spi.xfer( bytes( "g80,0,80\n","ascii"))
+        time.sleep(.1)
+        spi.xfer( bytes( "s1,0\n","ascii"))
+
+
+#----------------------------
+def move_hands(year,month) :
+#----------------------------
+    # Tell hands to move to the first entry's year
+    cmd = "h" + str(year) + "." + str(month) + "\n"
+    print( "sending " + cmd)
+    spi.xfer( bytes( cmd,"ascii"))
+
+    # Poll for hands to be done          
+    done = False
+    while not done :
+        d = spi.xfer( bytes("n\n","ascii"))
+        if d[1] == 1 :
+            done = True
+        print( "tick")
+        time.sleep(1)
+    print("Done")
+
+
+#---------------------------------
+def player_stopped() :
+#---------------------------------
+    print("Player done.")
+
+    
+# --------------------------------------------------------------------
+#                              M a i n
+#---------------------------------------------------------------------
+global spi
+global ser
+init_hardware()
+library = []
+load_library()     
+
+# Video player to the startup screen and pause
+player = OMXPlayer(path+startup_clip, args=['--display=5 --loop'])
+time.sleep(1)
+player.pause()
+player.stopEvent = player_stopped
+
+# Wait until body has finished calibration
+if True :
+    print("Waiting for calibration...")
+    done = False
+    while not done :
+        d = spi.xfer( bytes("n\n","ascii"))
+        if d[1] == 1 :
+            done = True
+        print( "tick")
+        time.sleep(1)               
+    print("Done")
+    #  Tell face that we're ready
+    ser.write( bytes( "R\n","ascii"))
+
+# Play startup sound();
+pygame.mixer.init()
+pygame.mixer.music.load("startup_sound.wav")
+pygame.mixer.music.play()
+
+# Main Command Loop  
+while True:
+    if False :
+        # Debug mode
+        cmd = "G0000\n"
+        target = input("Targoot: ")
+        try:
+           year = int(target)
+        except:
+            year = 0        
+        if year == 0 :
+            exit();
+
+    else :
+        # Normal Mode
+        c=ser.read_until()
+        cmd=c.decode('ascii', "ignore")
+        
+  
+    if cmd.startswith("G") :
+        # 'GO' Command: Switch to startup clip, then go get a list of the closest file(s)
+        year = int(cmd[1:5])
+        try:
+            player.load(path+startup_clip)
+            time.sleep(1)
+            player.pause()
+        except:
+            print("player died")
+            
+        print("Requested year: " + str(year))
+        pl = get_files(year)
+        
+        for i in range(len(pl)):
+            p = library[pl[i]]
+            print( str(pl[i]) + ": (" + str(p['year']) + "." + str(p['month']) + " ) " + p['file'] + " @" + str(p['last_play']) )
+
+        do_style(1)
+            
+        # Tell hands to move to the first entry's year
+        p = library[pl[0]]
+        move_hands(p["year"], p["month"])
+        
+        #  Quiet style now
+        do_style(0)
+        
         #  Tell face that we're here
         ser.write( bytes( "A\n","ascii"))
 
-        # play the least-recently played file in the list
-        t = library[pl[0]][2]
+        # Play the least-recently played file in the list
+        t = library[pl[0]]["last_play"]
         tx = pl[0]
         for i in range(len(pl)):
-            if library[pl[i]][2] < t :
+            if library[pl[i]]["last_play"] < t :
               tx = pl[i]
 
         p = library[tx];
         # Note the time we're playing this in the library
-        library[tx][2] = time.time()
-        print( str(tx) + ": (" + str(p[0]) + ") " + p[1] + "   @" + str(p[2]) )
-        player.load(p[1])
+        library[tx]["last_play"] = time.time()
+        print( str(tx) + ": (" + str(p["year"]) + ") " + p["file"] + "   @" + str(p["last_play"]) )
+        player.load(p["file"])
+
+        # Wait for player to complete
+        
 
 
