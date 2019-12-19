@@ -1,6 +1,8 @@
 //----------------------------------------------------------------------
 //  File: lantern_body_control
-//
+// 
+// Hardware: Arduino Pro Mini 8 MHz 3.3V
+// 
 // Description:
 //    This load for Arduino #2 scans for input from 
 //      > Rotary encoder and pushbutton
@@ -129,20 +131,58 @@ public:
       if (timer) timer--;
    }
 
-
+   //--------------------------
    void update() {
+   //--------------------------
+      uint16_t to_up, to_down;
+   
       if (timer) return;
 
       timer = interval; 
-
+ 
       for (int m = 0; m<2; m++) {
-
          if (motor_position[m] == motor_target[m] ) continue;
 
-         if (motor_position[m] < motor_target[m]) {
-            step(m,1); 
-         } else {
-            step(m,-1);
+         //Serial.print(m);
+         //Serial.print(": ");
+         //Serial.print(motor_position[m]);
+         //Serial.print(", ");
+         //Serial.print(motor_target[m]);
+         //Serial.print(": ");
+
+         if (motor_position[m] > motor_target[m]) {
+            // we're moving to a lower position, but which way is shorter?
+            to_down = motor_position[m] - motor_target[m];
+            to_up   = motor_target[m] + motor_fullRotation_c[m] - motor_position[m];
+         //   Serial.print(to_up);
+         //   Serial.print(", ");
+         //   Serial.print(to_down);
+
+            if ( to_up < to_down ) {
+         //      Serial.println(" -> Step lower up");
+               step(m, 1); 
+            }
+            else {
+         //      Serial.println(" -> Step lower down");
+               step(m,-1);
+            }
+         }
+         // Moving to a higher position, but which way is shorter?
+         else {
+            to_up  = motor_target[m] - motor_position[m];
+            to_down =  motor_position[m] + motor_fullRotation_c[m] - motor_target[m];
+        //   Serial.print(to_up);
+        //   Serial.print(", ");
+        //   Serial.print(to_down);
+
+            if ( to_up < to_down ) {
+        //       Serial.println(" -> Step higher up");
+               step(m, 1); 
+            }
+            else {
+        //       Serial.println(" -> Step higher down");
+               step(m,-1);
+            }
          }
       }
 
@@ -153,34 +193,46 @@ public:
 
 
    void calibrate() {
-      // Hour Hand
-      while (analogRead(HAND_SENSE_PIN) > HAND_SENSE_THRESHOLD) {
+      // If sensor is already covered, move the hour hand a bit
+     if (analogRead(HAND_SENSE_PIN) < HAND_SENSE_THRESHOLD) {
+       step(HOUR_HAND, -100);
+     }
+     // if sensor is still covered, move minute hand a bit
+     if (analogRead(HAND_SENSE_PIN) < HAND_SENSE_THRESHOLD) {
+       step(MINUTE_HAND, -100);
+     }
+
+     // Hour Hand: Advance until we pass by the sensor, then go 200 further
+     while (analogRead(HAND_SENSE_PIN) > HAND_SENSE_THRESHOLD) {
          step(HOUR_HAND, 1);
          delay(10);
       }
       step(HOUR_HAND, 200);
 
+      // Hour Hand: Move backward until we pass the sensor
       while (analogRead(HAND_SENSE_PIN) > HAND_SENSE_THRESHOLD) {
           step(HOUR_HAND, -1);
           delay(10);
       }
-      motor_position[HOUR_HAND] = 0;
+      // Trim into position
       step(HOUR_HAND, -motor_sense_offset_c[HOUR_HAND] );
+      motor_position[HOUR_HAND] = 0; 
 
-      // Minute Hand
+      // Minute Hand: Advance until we cover the sensor, then move 100 beyond
       while (analogRead(HAND_SENSE_PIN) > HAND_SENSE_THRESHOLD) {
          step(MINUTE_HAND, 1);
          delay(10);
       }
-
       step(MINUTE_HAND, 100);
 
+      // Minute Hand: Back up until we cover the sensor
       while (analogRead(HAND_SENSE_PIN) > HAND_SENSE_THRESHOLD) {
           step(MINUTE_HAND, -1);
           delay(10);
       }
-      motor_position[MINUTE_HAND] = 0;
+      // Trim into position
       step(MINUTE_HAND, -motor_sense_offset_c[MINUTE_HAND] );
+      motor_position[MINUTE_HAND] = 0;
    }
 
 
@@ -190,12 +242,13 @@ public:
 
       for (int i=0; i<d; i++) {
          if (n > 0) {
-            motor_phase[m] = (motor_phase[m] == 7) ? 0 : motor_phase[m] + 1; 
-            motor_position[m] = (motor_position[m] == motor_fullRotation_c[m]-1) ? 0 : motor_position[m]+1; 
-         } else {
-            motor_phase[m]    = (motor_phase[m]    == 0) ? 7 : motor_phase[m]-1;
-            motor_position[m] = (motor_position[m] == 0) ? 0 : motor_position[m]-1;
-         };
+           motor_phase[m]    = (motor_phase[m]    == 7                        ) ? 0 : motor_phase[m] + 1; 
+           motor_position[m] = (motor_position[m] == motor_fullRotation_c[m]-1) ? 0 : motor_position[m]+1; 
+         } 
+         else {
+           motor_phase[m]    = (motor_phase[m]    == 0) ? 7                       : motor_phase[m]-1;
+           motor_position[m] = (motor_position[m] == 0) ? motor_fullRotation_c[m]-1 : motor_position[m]-1;
+         };                                                
 
          // Apply new step phase to all windings
          for (int w = 0; w < 4; w++) {
@@ -206,27 +259,30 @@ public:
       }
    }
 
-
+   //-----------------------------
    void set_time( char *cmd) {
+   //-----------------------------
       uint16_t y, s, h;
       char *p = cmd;
 
-      // Hour Hand
+      // Get year from command line
       y = get_int(&p);
      
-      // Translate year onto clock face (120 ticks total)
-
+      // Hour Hand: Translate year onto clock face (120 hand positions total)
       h =   (y < 1000) ? y / 100  
           : (y < 2000) ? (y - 900) / 10 
           : (y + 9000) / 100;
 
+      // Convert to motor position and set target
       s = h * motor_segmentSteps_c[HOUR_HAND]; 
       motor_target[HOUR_HAND] = s;    
 
-      if (*p != '\0') p++;
       
-      // Minute Hand
+      // Minute Hand: 12 hand positions total
+      if (*p != '\0') p++;
       y = get_hex(&p);
+
+      // Convert to motor steps and set target
       s = y * motor_segmentSteps_c[MINUTE_HAND] + motor_segmentSteps_c[MINUTE_HAND]/2; 
       motor_target[MINUTE_HAND] = s;
 
@@ -490,6 +546,57 @@ public:
 Spinner_cl spinner(0);
 
 
+//-------------------------------------------------------------------------
+class MySerial_cl {
+//-------------------------------------------------------------------------
+  char      cmd[16];
+  uint8_t   index;
+  char      ready;
+      
+public:
+
+  mySerial_cl(char c) {
+    index  = 0;
+    cmd[0] = '\0';
+    ready  = 0;
+  }
+
+  poll() {
+    char c;
+    c = Serial.read(); 
+    if (c > 0 ) {
+      c = c & 0x7f;
+      cmd[index] = c;
+      if (index < 14) {
+        index++;
+      }
+
+      if (c == '\r') {
+        cmd[index] = '\0';
+        ready = 1; 
+      }
+    }
+  }
+
+  int rxRead(char *p) {
+    int n=0;
+    if (ready) {
+      n = index;
+
+      for (int i=0; i<n; i++) {
+         p[i] = cmd[i];
+      }
+      p[n] = '\0';
+      index = 0;
+      ready = 0;
+    }
+    return n;
+  }
+};  // MySerial_cl
+
+MySerial_cl mySerial;
+
+
 
 //--------------------------------------------------------------------------
 void setup() {
@@ -568,34 +675,43 @@ ISR (SPI_STC_vect) {                                 // SPI interrupt routine
 //--------------------------------------------------------------------------
 void loop() {
 //--------------------------------------------------------------------------
-   char cmd[16];
-   char *cp;
-   int n;
-   int cx, p1;
+  char cmd[16];
+  char *cp;
+  int n;
+  int p1;
 
-   warpcore.update();
-   clock_hands.update();
-   gears.update();
-   spinner.update();
+  // Task List
+  warpcore.update();
+  clock_hands.update();
+  gears.update();
+  spinner.update();
+  mySerial.poll();
 
-   cx = 1;
-   
-   if ( n=spi.rxRead(cmd) ) {
-      Serial.print("Received( ");
-      Serial.print(n);
-      Serial.print(")<");
-      Serial.print(cmd);
-      Serial.print(">\n");
+
+  //--------[ Command Interpreter ]--------
+  n = mySerial.rxRead(cmd);
+  if (n == 0) {
+    n = spi.rxRead(cmd);
+  }
+
+  if (n != 0) {
+    Serial.print("Received( ");
+    Serial.print(n);
+    Serial.print(")<");
+    Serial.print(cmd);
+    Serial.print(">\n");
       
-      switch ( cmd[0] ) {
-         case 'g': gears.control(        &cmd[1] );    break;
-         case 'h': clock_hands.set_time( &cmd[1] );    break;
-         case 'n':                                     break;   // Noop, used for polling
-         case 's': spinner.control(      &cmd[1] );    break;
-         case 'w': warpcore.control(     &cmd[1] );    break;
-         default:                                      break;
-      }
-   }
+    switch ( cmd[0] ) {
+      case 'c': clock_hands.calibrate();            break;
+      case 'e': Serial.println(cmd);                break; 
+      case 'g': gears.control(        &cmd[1] );    break;
+      case 'h': clock_hands.set_time( &cmd[1] );    break;
+      case 'n':                                     break;   // Noop, used for polling
+      case 's': spinner.control(      &cmd[1] );    break;
+      case 'w': warpcore.control(     &cmd[1] );    break;
+      default:                                      break;
+    }
+  }
 }
 
 

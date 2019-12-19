@@ -1,6 +1,8 @@
 //----------------------------------------------------------------------
-//  File: UserIO
+//  File: lantern_face_control
 //
+//  Hardware: Arduino Pro Mini 5V 16Mhz
+// 
 // Description:
 //    This load for Arduino #2 scans for input from 
 //      > Rotary encoder and pushbutton
@@ -68,7 +70,9 @@ Servo leftServo, rightServo;
 
 
 //--------[ Global User Interface state variables ]--------
-
+char cmd_ptr;
+char cmd[16];
+char cmd_rdy;
 
 //---------------------------------------------------------------
 //       Utilities
@@ -580,10 +584,10 @@ void setup() {
    FastLED.addLeds<NEOPIXEL, RIGHT_DATA_PIN>(rightLeds, NUM_LEDS);
    FastLED.setBrightness( BRIGHTNESS );
 
-//   leftServo.attach(LEFT_SERVO_PIN);
-//   leftServo.write(150);
-//  rightServo.attach(RIGHT_SERVO_PIN);
-//   rightServo.write(150);
+ //  leftServo.attach(LEFT_SERVO_PIN);
+ //  leftServo.write(150);
+ //  rightServo.attach(RIGHT_SERVO_PIN);
+ //  rightServo.write(50);
 
    pinMode(ROTARY_DT_PIN,     INPUT_PULLUP);
    digitalWrite(ROTARY_DT_PIN, HIGH);
@@ -602,9 +606,11 @@ void setup() {
    pinMode(NIXIE_SD_PIN, OUTPUT); 
    pinMode(NIXIE_CK_PIN, OUTPUT);
    
+   cmd_ptr = 0;
+   cmd_rdy = 0;
    Serial.begin(57600);
    nixies.set_current_year(2019);
-   Serial.print("Hi.\n");
+   Serial.print("R\n");
 }
   
 
@@ -641,74 +647,49 @@ SIGNAL(TIMER0_COMPA_vect) {                             // 1 ms interrupt ISR
 void loop() {
 //--------------------------------------------------------------------------
    int command;
-   char cmd[16];
+   char c;
 
    //do_left_gaugeServo();
-  //do_right_gaugeServo();
+   //do_right_gaugeServo();
 
    joystick.poll();
    rotary_encoder.poll();
    nixies.update();
-   //gaugeLeds.update();
 
    //--------[ Command interpreter ]--------
-
-   command = Serial.read();
-   if (command > 0) {
-     nixies.set_ready();
-     joystick.set_ready();
-
-     cmd[0] = command & 0x7f;
-         
-     if (cmd[0] == 'A') {
-       nixies.arrive();
-       joystick.arrive();
-     } 
-     else if (cmd[0] == 'R') {
-       nixies.set_ready();
-       joystick.set_ready();
+   
+   command = Serial.read(); 
+   if (command > 0 ) {
+     c = command & 0x7f;
+     if (cmd_ptr < 14) {
+       cmd[cmd_ptr++] = c;
+     }
+     if (c == '\r') {
+       cmd[cmd_ptr++] = c;
+       cmd[cmd_ptr] = 0;
+       cmd_rdy = 1; 
      }
    }
-}
 
+   if (cmd_rdy) {
+     if (cmd[0] == 'A') {      // Arrive command
+        nixies.arrive();
+        joystick.arrive();
+     } 
+     else if (cmd[0] == 'R') { // Ready command (seed)
+       nixies.set_ready();
+       joystick.set_ready();
+       Serial.print("r\n");
+     }
+     else if (cmd[0] == 'E') {   // Echo command
+       Serial.println(cmd);
+     }
+     cmd_rdy = 0;
+     cmd_ptr = 0;
+   }  
+ }
 
-  
-
-//--------------------------------
-void do_left_gaugeLeds() {
-//--------------------------------
-//   for (int i=0; i< NUM_LEDS; i++) {
-//      leftLeds[i]  = CRGB::Orange;
-//      rightLeds[i] = CRGB::Green;
-//   }
-   uint16_t thisLed,lastLed;
-
-   for (int pos=5; pos<85; pos++) {
-      if (pos %10 == 0) {
-         thisLed = pos / 10; 
-         leftLeds[thisLed] = CRGB::Red;
-         leftLeds[lastLed] = CRGB::Blue;
-         rightLeds[thisLed] = CRGB::Blue;
-         rightLeds[lastLed] = CRGB::Yellow;
-         lastLed       = thisLed;
-         FastLED.show();
-         delay(100);
-      }
-   }
-   for (int pos=85; pos>5; pos--) {
-      if (pos %10 == 0) {
-        thisLed             = pos/10;
-        leftLeds[thisLed]   = CRGB::Red;
-        leftLeds[lastLed]   = CRGB::Blue;
-        rightLeds[thisLed]  = CRGB::Blue;
-        rightLeds[lastLed]  = CRGB::Yellow;
-        lastLed             = thisLed;
-        FastLED.show();
-        delay(100);
-      }
-   }
-   FastLED.show(); 
-}
+ 
 
 
 //---------------------------------
