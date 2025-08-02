@@ -152,37 +152,27 @@ public:
 
          if (motor_position[m] > motor_target[m]) {
             // we're moving to a lower position, but which way is shorter?
-            to_down = motor_position[m] - motor_target[m];
             to_up   = motor_target[m] + motor_fullRotation_c[m] - motor_position[m];
-         //   Serial.print(to_up);
-         //   Serial.print(", ");
-         //   Serial.print(to_down);
-
-            if ( to_up < to_down ) {
-         //      Serial.println(" -> Step lower up");
-               step(m, 1); 
-            }
-            else {
-         //      Serial.println(" -> Step lower down");
-               step(m,-1);
-            }
+            to_down = motor_position[m] - motor_target[m];
+         //   Serial.print("Heading down: ");
          }
-         // Moving to a higher position, but which way is shorter?
          else {
+            // Moving to a higher position, but which way is shorter?
             to_up  = motor_target[m] - motor_position[m];
             to_down =  motor_position[m] + motor_fullRotation_c[m] - motor_target[m];
-        //   Serial.print(to_up);
-        //   Serial.print(", ");
-        //   Serial.print(to_down);
-
-            if ( to_up < to_down ) {
-        //       Serial.println(" -> Step higher up");
-               step(m, 1); 
-            }
-            else {
-        //       Serial.println(" -> Step higher down");
-               step(m,-1);
-            }
+        //   Serial.print("Heading up: ");
+         }
+        //Serial.print(to_up);
+        //Serial.print(", ");
+        //Serial.print(to_down);
+        
+         if ( to_up < to_down ) {
+         //   Serial.println(" -> Step up");
+            step(m, 1); 
+         }
+         else {
+         //   Serial.println(" -> Step down");
+            step(m,-1);
          }
       }
 
@@ -268,7 +258,7 @@ public:
       // Get year from command line
       y = get_int(&p);
      
-      // Hour Hand: Translate year onto clock face (120 hand positions total)
+      // Hour Hand: Translate year onto clock face hour hand (120 hand positions total)
       h =   (y < 1000) ? y / 100  
           : (y < 2000) ? (y - 900) / 10 
           : (y + 9000) / 100;
@@ -276,23 +266,25 @@ public:
       // Convert to motor position and set target
       s = h * motor_segmentSteps_c[HOUR_HAND]; 
       motor_target[HOUR_HAND] = s;    
+      Serial.print("Set 1: ");
+      Serial.print(h);
+      Serial.print(", ");
+      Serial.println(s);
 
-      
-      // Minute Hand: 12 hand positions total
+      // Hour Hand:Translate Month into minute hand (12 hand positions total)
       if (*p != '\0') p++;
-      y = get_hex(&p);
+      y = get_int(&p);
 
       // Convert to motor steps and set target
       s = y * motor_segmentSteps_c[MINUTE_HAND] + motor_segmentSteps_c[MINUTE_HAND]/2; 
+      if(s > motor_fullRotation_c[MINUTE_HAND]) s -= motor_fullRotation_c[MINUTE_HAND];
       motor_target[MINUTE_HAND] = s;
-
       done = 0;
 
-      Serial.print("[");
-      Serial.print(h, DEC);
+      Serial.print("Set 0: ");
+      Serial.print(y);
       Serial.print(", ");
-      Serial.print(y, DEC);
-      Serial.println("]"); 
+      Serial.println(s);
    }
 
 };

@@ -74,6 +74,9 @@ char cmd_ptr;
 char cmd[16];
 char cmd_rdy;
 
+#define THIS_YEAR 2025;
+
+
 //---------------------------------------------------------------
 //       Utilities
 //---------------------------------------------------------------
@@ -189,8 +192,8 @@ class Nixies_cl {                           // Class for Nixie display tubes
 public:
 
    Nixies_cl(char c) {
-      current_year  = 2019;
-      target_year   = 2019; 
+      current_year  = THIS_YEAR;
+      target_year   = THIS_YEAR; 
       underway      = 0;
       idle_r        = 0;
       idle_g        = 0;
@@ -609,8 +612,9 @@ void setup() {
    cmd_ptr = 0;
    cmd_rdy = 0;
    Serial.begin(57600);
-   nixies.set_current_year(2019);
+   nixies.set_current_year(THIS_YEAR);
    Serial.print("R\n");
+
 }
   
 
@@ -678,6 +682,7 @@ void loop() {
      } 
      else if (cmd[0] == 'R') { // Ready command (seed)
        nixies.set_ready();
+       nixies.arrive();
        joystick.set_ready();
        Serial.print("r\n");
      }
